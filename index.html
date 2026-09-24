@@ -862,6 +862,13 @@ $("#leadForm").addEventListener("submit", async e => {
   pending.config = COPY[pending.intent].cfg ? v.config : pending.config;
   lead = {name: v.name, phone: v.phone}; store("egs_lead", lead);
   await saveLead({...lead, intent: pending.intent, config: pending.config, plan: pending.plan});
+  if (typeof gtag === "function") {
+  gtag("event", "conversion", {
+    send_to: "PASTE_YOUR_EXACT_SEND_TO_ID_HERE",
+    value: 1,
+    currency: "INR"
+  });
+}
   btn.disabled = false;
   openEverything();
   if(pending.intent === "plan" && pending.plan) unlockPlan(pending.plan);
@@ -869,12 +876,21 @@ $("#leadForm").addEventListener("submit", async e => {
 });
 $("#inlineForm").addEventListener("submit", async e => {
   e.preventDefault();
-  const v = validate(e.target); if(!v) return;
+  const v = validate(e.target); if (!v) return;
   lead = {name: v.name, phone: v.phone}; store("egs_lead", lead);
   await saveLead({...lead, intent: "callback", config: v.config});
+
+  if (typeof gtag === "function") {
+    gtag("event", "conversion", {
+      send_to: "AW-18471562189/2Q8XCPirrYMdEM3X9udE",
+      value: 1,
+      currency: "INR"
+    });
+  }
+
   openEverything();
   e.target.reset();
-  pending = {intent:"callback", config:v.config};
+  pending = {intent: "callback", config: v.config};
   showDone(); dlg.showModal();
 });
 
