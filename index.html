@@ -642,7 +642,7 @@ h2{font-size:clamp(2.3rem,4.6vw,3.6rem)}
     </div>
     <form id="inlineForm" novalidate>
       <input type="hidden" name="intent" value="callback">
-      <div class="field"><label for="in-name">Your name</label><input id="in-name" name="name" autocomplete="name" required></div>
+      <div class="field"><label for="in-name">Your name</label><input id="in-name" name="name" autocomplete="name" maxlength="80" required></div>
       <div class="field"><label for="in-phone">Mobile number</label><div class="phone"><span>+91</span><input id="in-phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="10" required></div></div>
       <div class="field"><label for="in-config">Looking for</label><select id="in-config" name="config"><option value="">Not sure yet</option><option value="2 BHK Optimum">2 BHK Optimum · 852 sq.ft</option><option value="2 BHK">2 BHK · 868 sq.ft</option><option value="3 BHK Compact">3 BHK Compact · 963 sq.ft</option><option value="3 BHK Optimum">3 BHK Optimum · 1,074 sq.ft</option></select></div>
       <p class="err" aria-live="polite"></p>
@@ -677,7 +677,7 @@ h2{font-size:clamp(2.3rem,4.6vw,3.6rem)}
       <h2 id="dlgTitle">Download the brochure</h2>
       <p class="lede" id="dlgLede"></p>
       <form id="leadForm" novalidate>
-        <div class="field"><label for="f-name">Your name</label><input id="f-name" name="name" autocomplete="name" required></div>
+        <div class="field"><label for="f-name">Your name</label><input id="f-name" name="name" autocomplete="name" maxlength="80" required></div>
         <div class="field"><label for="f-phone">Mobile number</label><div class="phone"><span>+91</span><input id="f-phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="10" required></div></div>
         <div class="field" id="configField"><label for="f-config">Home you're interested in</label>
           <select id="f-config" name="config"><option value="">All homes</option><option value="2 BHK Optimum">2 BHK Optimum · 852 sq.ft</option><option value="2 BHK">2 BHK · 868 sq.ft</option><option value="3 BHK Compact">3 BHK Compact · 963 sq.ft</option><option value="3 BHK Optimum">3 BHK Optimum · 1,074 sq.ft</option></select></div>
@@ -849,11 +849,14 @@ function validate(form){
   const name = form.name.value.trim();
   const phone = form.phone.value.replace(/\D/g, "").replace(/^(91|0)(?=\d{10}$)/, "");
   const err = form.querySelector(".err");
-  if(name.length < 2){ err.textContent = "Enter your name."; form.name.focus(); return null; }
+  if(name.length < 2 || !/^(?=.*\p{L})[\p{L}\p{M} .\u2019\x27-]+$/u.test(name)){ err.textContent = "Enter a name using letters only (no numbers)."; form.name.focus(); return null; }
   if(!/^[6-9]\d{9}$/.test(phone)){ err.textContent = "Enter a 10-digit Indian mobile number."; form.phone.focus(); return null; }
   err.textContent = "";
   return {name, phone, config: form.config ? form.config.value : ""};
 }
+$$('input[name="name"]').forEach(i => i.addEventListener("input", () => {
+  if(!i.isComposing) i.value = i.value.replace(/[^\p{L}\p{M} .\u2019\x27-]/gu, "").slice(0, 80);
+}));
 $$('input[type="tel"]').forEach(i => i.addEventListener("input", () => { i.value = i.value.replace(/\D/g, "").slice(0, 10); }));
 
 $("#leadForm").addEventListener("submit", async e => {
