@@ -710,7 +710,7 @@ h2{font-size:clamp(2.3rem,4.6vw,3.6rem)}
 /* ---------- settings: edit these when you host the page yourself ---------- */
 const CONFIG = {
   salesPhone: "919130133322",      // e.g. "919800000000" – shows call & WhatsApp buttons when set
-  leadEndpoint: "https://script.google.com/macros/s/AKfycbwv5RLnNnnkZpYl9FfVSWiWABNdF2Z41LXdtIZuOZN_maME7FuAAcrXkJiHfppKtQzx0Q/exec"     // e.g. a Google Apps Script / CRM webhook URL (works when self-hosted)
+  leadEndpoint: "https://REPLACE-WITH-YOUR-NETLIFY-SITE.netlify.app/.netlify/functions/create-lead" // Set this after Netlify deploys the function.
 };
 
 const PRICES = [
@@ -819,9 +819,18 @@ const COPY = {
 let pending = {intent:"brochure", config:"", plan:""};
 const dlg = $("#dlg");
 
-function openLead(intent, config="", plan=""){
+async function openLead(intent, config="", plan=""){
   pending = {intent, config, plan};
-  if(lead){ saveLead({...lead, intent, config, plan}); if(plan) unlockPlan(plan); showDone(); dlg.showModal(); return; }
+  if(lead){
+    try {
+      await saveLead({...lead, intent, config, plan});
+      if(plan) unlockPlan(plan);
+      showDone(); dlg.showModal();
+    } catch {
+      toast("Could not send your enquiry. Please try again.");
+    }
+    return;
+  }
   const c = COPY[intent];
   $("#dlgTitle").textContent = c.h;
   $("#dlgLede").textContent = c.l;
@@ -864,38 +873,50 @@ $("#leadForm").addEventListener("submit", async e => {
   const v = validate(e.target); if(!v) return;
   const btn = $("#dlgSubmit"); btn.disabled = true;
   pending.config = COPY[pending.intent].cfg ? v.config : pending.config;
-  lead = {name: v.name, phone: v.phone}; store("egs_lead", lead);
-  await saveLead({...lead, intent: pending.intent, config: pending.config, plan: pending.plan});
-  if (typeof gtag === "function") {
-  gtag("event", "conversion", {
-    send_to: "PASTE_YOUR_EXACT_SEND_TO_ID_HERE",
-    value: 1,
-    currency: "INR"
-  });
-}
-  btn.disabled = false;
-  openEverything();
-  if(pending.intent === "plan" && pending.plan) unlockPlan(pending.plan);
-  showDone();
+  const submittedLead = {name: v.name, phone: v.phone};
+  try {
+    await saveLead({...submittedLead, intent: pending.intent, config: pending.config, plan: pending.plan});
+    lead = submittedLead; store("egs_lead", lead);
+    if (typeof gtag === "function") {
+      gtag("event", "conversion", {
+        send_to: "PASTE_YOUR_EXACT_SEND_TO_ID_HERE",
+        value: 1,
+        currency: "INR"
+      });
+    }
+    openEverything();
+    if(pending.intent === "plan" && pending.plan) unlockPlan(pending.plan);
+    showDone();
+  } catch {
+    e.target.querySelector(".err").textContent = "Could not send your enquiry. Please try again.";
+  } finally {
+    btn.disabled = false;
+  }
 });
 $("#inlineForm").addEventListener("submit", async e => {
   e.preventDefault();
   const v = validate(e.target); if (!v) return;
-  lead = {name: v.name, phone: v.phone}; store("egs_lead", lead);
-  await saveLead({...lead, intent: "callback", config: v.config});
-
-  if (typeof gtag === "function") {
-    gtag("event", "conversion", {
-      send_to: "AW-18471562189/2Q8XCPirrYMdEM3X9udE",
-      value: 1,
-      currency: "INR"
-    });
+  const btn = e.target.querySelector('button[type="submit"]'); btn.disabled = true;
+  const submittedLead = {name: v.name, phone: v.phone};
+  try {
+    await saveLead({...submittedLead, intent: "callback", config: v.config});
+    lead = submittedLead; store("egs_lead", lead);
+    if (typeof gtag === "function") {
+      gtag("event", "conversion", {
+        send_to: "AW-18471562189/2Q8XCPirrYMdEM3X9udE",
+        value: 1,
+        currency: "INR"
+      });
+    }
+    openEverything();
+    e.target.reset();
+    pending = {intent: "callback", config: v.config};
+    showDone(); dlg.showModal();
+  } catch {
+    e.target.querySelector(".err").textContent = "Could not send your enquiry. Please try again.";
+  } finally {
+    btn.disabled = false;
   }
-
-  openEverything();
-  e.target.reset();
-  pending = {intent: "callback", config: v.config};
-  showDone(); dlg.showModal();
 });
 
 function priceTable(rows){
@@ -987,27 +1008,18 @@ async function saveFile(which){
 async function saveLead(entry){
   const at = new Date().toISOString();
   const record = {...entry, at, utm, page: "evergreen-square"};
+  if (!CONFIG.leadEndpoint || CONFIG.leadEndpoint.includes("REPLACE-WITH-YOUR-NETLIFY-SITE")) {
+    throw new Error("CRM endpoint is not configured");
+  }
+  const response = await fetch(CONFIG.leadEndpoint, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(record)
+  });
+  const result = await response.json();
+  if (!response.ok || !result.ok) throw new Error("CRM did not accept the enquiry");
   const local = store("egs_requests") || []; local.push(record); store("egs_requests", local.slice(-50));
 
-  if(CONFIG.leadEndpoint){
-    try{ await fetch(CONFIG.leadEndpoint, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body: JSON.stringify(record), mode:"no-cors"}); }catch(e){}
-  }
-  const [db, user] = await Promise.all([cap("db"), cap("user")]);
-  if(!db || !user) return;
-  try{
-    const uid = await user.id();
-    if(!uid) return;
-    const ref = db.doc("leads/" + uid);
-    const snap = await ref.get();
-    const prev = snap.exists ? snap.data() : null;
-    const reqs = [...((prev && prev.requests) || []), {intent: entry.intent, config: entry.config || "", at}].slice(-40);
-    await ref.set({
-      name: entry.name, phone: entry.phone,
-      lastIntent: entry.intent, lastConfig: entry.config || (prev && prev.lastConfig) || "",
-      requests: reqs, firstAt: (prev && prev.firstAt) || at, updatedAt: at,
-      utm: Object.keys(utm).length ? utm : ((prev && prev.utm) || {})
-    });
-  }catch(e){ /* the local copy and endpoint still hold the lead */ }
 }
 
 /* ---------- leads panel (editors only) ---------- */
