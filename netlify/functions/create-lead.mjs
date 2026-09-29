@@ -1,6 +1,7 @@
 // This function is deployed on Netlify; the landing page remains on GitHub Pages.
 // Configure LEADRAT_API_KEY in Netlify's environment variables (Functions scope).
 const CRM_URL = "https://connect.leadrat.com/api/v1/integration/Website";
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbwv5RLnNnnkZpYl9FfVSWiWABNdF2Z41LXdtIZuOZN_maME7FuAAcrXkJiHfppKtQzx0Q/exec";
 const ORIGINS = new Set([
   "https://godrejevergreen.com",
   "https://www.godrejevergreen.com",
@@ -90,6 +91,12 @@ export default async function createLead(request) {
     ...submissionTime(),
   }];
 
+  // Keep the old leads sheet as a verified fallback while LeadRat rejects requests.
+  const sheetRecord = {
+    name, phone: mobile, intent, config, plan,
+    at: new Date().toISOString(), utm, page: "evergreen-square",
+  };
+
   try {
     const response = await fetch(CRM_URL, {
       method: "POST",
@@ -100,13 +107,26 @@ export default async function createLead(request) {
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(10000),
     });
-    if (!response.ok) {
-      console.error("LeadRat rejected a lead with HTTP", response.status);
-      return reply(502, { ok: false, error: "CRM did not accept the enquiry" }, origin);
-    }
-    return reply(200, { ok: true }, origin);
+    if (response.ok) return reply(200, { ok: true }, origin);
+    console.error("LeadRat rejected a lead with HTTP", response.status);
   } catch (error) {
     console.error("LeadRat request failed:", error);
-    return reply(502, { ok: false, error: "CRM is temporarily unavailable" }, origin);
+  }
+
+  try {
+    const response = await fetch(SHEETS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(sheetRecord),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error(`Google Sheet returned HTTP ${response.status}`);
+    const result = await response.json();
+    if (result?.ok !== true) throw new Error("Google Sheet did not accept the enquiry");
+    console.info("Lead saved to Google Sheet fallback");
+    return reply(200, { ok: true, savedTo: "sheet" }, origin);
+  } catch (error) {
+    console.error("Google Sheet fallback failed:", error);
+    return reply(502, { ok: false, error: "Could not save the enquiry" }, origin);
   }
 }
